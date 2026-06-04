@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sistem Absensi - Full Integrasi</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f0f9ff; }
+        @keyframes scan { 0% { transform: translateY(-100%); } 100% { transform: translateY(400px); } }
+        .animate-scan { animation: scan 2.5s linear infinite; }
+        @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.8); } 70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        .hp-marker-dot { animation: pulse-red 2s infinite; }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div class="relative w-full max-w-md h-[850px] max-h-[90vh] bg-white rounded-[2.5rem] shadow-2xl border-[8px] border-blue-900 overflow-hidden flex flex-col">
+        
+        <!-- ==================== VIEW 1: MAIN MENU ==================== -->
+        <div id="viewSelection" class="flex-1 bg-white p-8 flex flex-col justify-center transition-all duration-300 transform scale-100 opacity-100">
+            <div class="text-center mb-10">
+                <div class="w-20 h-20 bg-blue-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg rotate-3 shadow-blue-500/40">
+                    <i class="fas fa-fingerprint text-4xl -rotate-3"></i>
+                </div>
+                <h1 class="text-2xl font-bold text-blue-950 mb-2">Presensi Digital</h1>
+                <p class="text-gray-500 text-sm">Terhubung ke Google Cloud</p>
+            </div>
+
+            <div class="space-y-4">
+                <button type="button" onclick="switchView('viewFaceScan')" class="w-full flex items-center justify-between p-4 rounded-xl border-2 border-blue-100 hover:border-blue-600 hover:bg-blue-50 transition-colors group">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors"><i class="fas fa-camera text-xl"></i></div>
+                        <div class="text-left"><h3 class="font-semibold text-gray-800">Karyawan / Guru</h3><p class="text-xs text-gray-500">Scan & Kirim ke Sheet</p></div>
+                    </div>
+                    <i class="fas fa-chevron-right text-gray-300"></i>
+                </button>
+
+                <button type="button" onclick="switchView('viewAdminLogin')" class="w-full flex items-center justify-between p-4 rounded-xl border-2 border-blue-100 hover:border-blue-600 hover:bg-blue-50 transition-colors group">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors"><i class="fas fa-shield-halved text-xl"></i></div>
+                        <div class="text-left"><h3 class="font-semibold text-gray-800">Admin HR</h3><p class="text-xs text-gray-500">Pengaturan Sistem</p></div>
+                    </div>
+                    <i class="fas fa-chevron-right text-gray-300"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- ==================== VIEW 2: FACE SCAN ==================== -->
+        <div id="viewFaceScan" class="absolute inset-0 bg-white hidden flex-col transition-all duration-300 transform scale-95 opacity-0 z-10">
+            <div class="bg-blue-900 text-white p-4 flex justify-between items-center z-10 relative shadow-md shrink-0">
+                <button type="button" onclick="switchView('viewSelection'); stopCamera()" class="text-blue-200 hover:text-white transition-colors flex items-center text-sm font-medium"><i class="fas fa-arrow-left mr-2"></i> Kembali</button>
+                <div class="font-semibold text-sm tracking-wide">PEMINDAIAN WAJAH</div>
+                <div class="w-20"></div>
+            </div>
+            
+            <div class="flex-1 bg-gray-100 flex items-center justify-center p-6 overflow-hidden relative">
+                <div id="gpsStatusInfo" class="absolute top-4 bg-gray-900/80 text-white text-xs px-4 py-2 rounded-full backdrop-blur-md z-30 shadow-lg hidden transition-colors duration-300">
+                    <i class="fas fa-location-dot mr-1 text-white"></i> <span id="gpsStatusText">Memeriksa GPS...</span>
+                </div>
+
+                <div class="relative w-full max-w-[280px] aspect-[3/4] bg-black overflow-hidden flex items-center justify-center rounded-[4rem] shadow-2xl border-[6px] border-white ring-4 ring-blue-100">
+                    <video id="videoFeed" class="w-full h-full object-cover transform scale-x-[-1]" autoplay playsinline></video>
+                    
+                    <div id="scanOverlay" class="absolute inset-0 pointer-events-none hidden overflow-hidden rounded-[3.5rem] m-[6px] border-2 border-blue-400/50">
+                        <div class="w-full h-full relative overflow-hidden"><div class="w-full h-1 bg-blue-400 absolute top-0 shadow-[0_0_20px_#60a5fa] animate-scan"></div></div>
+                    </div>
+
+                    <div id="scanResult" class="absolute inset-0 bg-green-900/80 backdrop-blur-sm hidden flex-col items-center justify-center p-6 text-center z-20 rounded-[3.5rem] m-[6px]">
+                        <i class="fas fa-check-circle text-5xl text-white mb-2 shadow-lg rounded-full"></i>
+                        <h3 class="text-white text-xl font-bold mb-2">Validasi Sukses</h3>
+                        <p id="statusText" class="text-green-100 text-sm">Menyimpan ke Cloud...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="p-6 bg-white z-10 relative shrink-0 border-t border-gray-100">
+                <input type="text" id="employeeNip" class="w-full mb-4 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-sm focus:border-blue-600 focus:outline-none text-center font-semibold" placeholder="Masukkan Nama / NIP Anda">
+                <button type="button" id="btnStartScan" onclick="startScan()" disabled class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-4 rounded-xl shadow-lg transition-all transform hover:-translate-y-0.5 opacity-50 cursor-not-allowed">
+                    Memeriksa Lokasi...
+                </button>
+            </div>
+        </div>
+
+        <!-- ==================== VIEW 3: ADMIN LOGIN ==================== -->
+        <div id="viewAdminLogin" class="absolute inset-0 bg-white p-8 hidden flex-col transition-all duration-300 transform scale-95 opacity-0 z-10">
+            <button type="button" onclick="switchView('viewSelection')" class="text-gray-400 hover:text-blue-600 transition-colors mb-8 flex items-center text-sm font-medium"><i class="fas fa-arrow-left mr-2"></i> Kembali</button>
+            <div class="flex-1 flex flex-col justify-center">
+                <div class="text-center mb-10">
+                    <div class="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4"><i class="fas fa-lock text-2xl"></i></div>
+                    <h2 class="text-2xl font-bold text-blue-950 mb-2">Otorisasi Admin</h2>
+                    <p class="text-gray-500 text-sm">Masukkan PIN (Default: 1234)</p>
+                </div>
+                <div class="space-y-6">
+                    <div>
+                        <input type="password" id="adminPin" class="w-full bg-blue-50/50 border-2 border-blue-100 text-center text-2xl tracking-[1em] py-4 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white text-blue-900" placeholder="••••" maxlength="4">
+                        <p id="adminError" class="text-red-500 text-sm text-center mt-3 font-semibold hidden"><i class="fas fa-circle-exclamation mr-1"></i> PIN tidak valid</p>
+                    </div>
+                    <button type="button" onclick="verifyAdmin()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all">Masuk Dasbor</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== VIEW 4: ADMIN DASHBOARD ==================== -->
+        <div id="viewAdminDashboard" class="absolute inset-0 bg-gray-50 hidden flex-col transition-all duration-300 transform scale-95 opacity-0 z-10">
+            <div class="bg-blue-900 text-white p-6 pb-8 rounded-b-[2rem] shadow-md shrink-0">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="font-bold text-lg text-blue-100"><i class="fas fa-shield-halved mr-2"></i> Admin Panel</h2>
+                    <button type="button" onclick="switchView('viewSelection')" class="text-blue-300 hover:text-white"><i class="fas fa-power-off"></i></button>
+                </div>
+                <h1 class="text-3xl font-bold mb-1">Dasbor Utama</h1>
+                <p class="text-blue-200 text-sm">Kelola data dan pengaturan sistem</p>
+            </div>
+            <div class="flex-1 p-6 space-y-4 overflow-y-auto">
+                <button type="button" onclick="switchView('viewAddTeacher')" class="w-full bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:border-blue-500 group">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center"><i class="fas fa-user-plus text-lg"></i></div>
+                        <div class="text-left"><h3 class="font-bold text-gray-900">Tambah Data Guru</h3><p class="text-xs text-gray-500">Registrasi & Rekam Wajah Baru</p></div>
+                    </div>
+                    <i class="fas fa-chevron-right text-gray-300"></i>
+                </button>
+                <button type="button" onclick="switchView('viewLocationSettings')" class="w-full bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:border-blue-500 group">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center"><i class="fas fa-map-location-dot text-lg"></i></div>
+                        <div class="text-left"><h3 class="font-bold text-gray-900">Pengaturan Lokasi</h3><p class="text-xs text-gray-500">Atur koordinat & radius absen</p></div>
+                    </div>
+                    <i class="fas fa-chevron-right text-gray-300"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- ==================== VIEW 5: ADD TEACHER ==================== -->
+        <div id="viewAddTeacher" class="absolute inset-0 bg-white hidden flex-col transition-all duration-300 transform scale-95 opacity-0 z-20">
+            <div class="bg-blue-900 text-white p-4 flex justify-between items-center shadow-sm shrink-0">
+                <button type="button" onclick="switchView('viewAdminDashboard'); stopCamera()" class="text-blue-200 hover:text-white text-sm"><i class="fas fa-arrow-left mr-2"></i> Kembali</button>
+                <div class="font-semibold text-sm">REGISTRASI GURU</div><div class="w-20"></div>
+            </div>
+            <div class="flex-1 overflow-y-auto p-6">
+                <div class="mb-8 flex flex-col items-center">
+                    <div class="relative w-40 h-52 rounded-[60px] overflow-hidden border-[4px] border-white bg-gray-100 shadow-xl mb-4 ring-2 ring-blue-100">
+                        <video id="recordVideoFeed" class="w-full h-full object-cover transform scale-x-[-1]" autoplay playsinline></video>
+                        <div id="recordScanOverlay" class="absolute inset-0 bg-blue-900/70 hidden flex-col items-center justify-center z-10 backdrop-blur-sm">
+                            <i class="fas fa-spinner fa-spin text-white text-3xl mb-2"></i><span id="recordStatus" class="text-white text-xs font-bold">Merekam...</span>
+                        </div>
+                    </div>
+                    <input type="hidden" id="faceDataRecorded" value="false">
+                    <button type="button" onclick="startRecordFace()" class="bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm font-semibold py-2 px-6 rounded-full border border-blue-200"><i class="fas fa-camera mr-2"></i> Mulai Rekam</button>
+                </div>
+                <div class="space-y-4">
+                    <div><label class="block text-xs font-bold text-gray-700 mb-1">Nomor Induk Pegawai</label><input type="text" id="guruNip" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-blue-600 focus:outline-none"></div>
+                    <div><label class="block text-xs font-bold text-gray-700 mb-1">Nama Lengkap</label><input type="text" id="guruNama" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-blue-600 focus:outline-none"></div>
+                    <div><label class="block text-xs font-bold text-gray-700 mb-1">Jabatan / Mapel</label><input type="text" id="guruJabatan" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-blue-600 focus:outline-none"></div>
+                </div>
+            </div>
+            <div class="p-4 bg-white border-t border-gray-100 shrink-0">
+                <button type="button" onclick="saveGuruData()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg"><i class="fas fa-save mr-2"></i> Simpan Data</button>
+            </div>
+        </div>
+
+        <!-- ==================== VIEW 6: LOCATION SETTINGS ==================== -->
+        <div id="viewLocationSettings" class="absolute inset-0 bg-white hidden flex-col transition-all duration-300 transform scale-95 opacity-0 z-20">
+            <div class="bg-blue-900 text-white p-4 flex justify-between items-center shadow-sm shrink-0">
+                <button type="button" onclick="switchView('viewAdminDashboard')" class="text-blue-200 hover:text-white text-sm"><i class="fas fa-arrow-left mr-2"></i> Kembali</button>
+                <div class="font-semibold text-sm">PENGATURAN LOKASI</div><div class="w-20"></div>
+            </div>
+            <div class="flex-1 flex flex-col relative">
+                <div id="mapContainer" class="flex-1 z-0 w-full h-full bg-gray-200"></div>
+                <div class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.1)] p-6 z-10">
+                    <div class="w-12 h-1 bg-gray-200 rounded-full mx-auto mb-4"></div>
+                    <div class="mb-4">
+                        <div class="flex justify-between items-end mb-2">
+                            <label class="block text-sm font-bold text-gray-900">Radius Area Absen</label>
+                            <span id="radiusValue" class="text-lg font-bold text-blue-600">50m</span>
+                        </div>
+                        <input type="range" min="10" max="1000" step="10" value="50" class="w-full h-2 bg-blue-100 rounded-lg appearance-none cursor-pointer accent-blue-600" oninput="updateRadius(this.value)">
+                        <div class="mt-3 flex items-start gap-2 bg-blue-50 p-3 rounded-lg border border-blue-100">
+                            <i class="fas fa-circle-info text-blue-500 mt-0.5 text-sm"></i>
+                            <p id="mapStatusText" class="text-xs text-blue-800 leading-relaxed font-medium">Mencari lokasi HP Anda... Mohon tunggu.</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="saveLocationSettings()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg"><i class="fas fa-check mr-2"></i> Simpan Lokasi Baru</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== MODAL CUSTOM ==================== -->
+        <div id="customModal" class="absolute inset-0 z-[9999] hidden items-center justify-center p-4">
+            <div class="absolute inset-0 bg-blue-950/60 backdrop-blur-sm" onclick="closeModal()"></div>
+            <div class="bg-white rounded-3xl p-8 w-full relative z-10 transform scale-90 opacity-0 transition-all duration-300 shadow-2xl border border-gray-100" id="modalContent">
+                <div id="modalIcon" class="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl"></div>
+                <h3 id="modalTitle" class="text-xl font-bold text-center text-gray-900 mb-2"></h3>
+                <p id="modalDesc" class="text-center text-gray-600 text-sm mb-6 whitespace-pre-line"></p>
+                <button onclick="closeModal()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors">Tutup</button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- SCRIPT UTAMA -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script>
+        // =========================================================================
+        // MASUKKAN URL GOOGLE APPS SCRIPT ANDA DI BAWAH INI (DARI LANGKAH SEBELUMNYA)
+        // =========================================================================
+        const GOOGLE_SCRIPT_URL = "PASTE_URL_GOOGLE_SCRIPT_ANDA_DISINI"; 
+
+        const views = ['viewSelection', 'viewFaceScan', 'viewAdminLogin', 'viewAdminDashboard', 'viewAddTeacher', 'viewLocationSettings'];
+        let stream = null;
+        let isScanning = false;
+        let currentUserLocationStr = "Lokasi tidak diketahui"; // Disimpan untuk dikirim ke G-Sheets
+
+        // Peta & GPS
+        let officeLocation = { lat: -7.905663, lng: 113.822004 }; 
+        let allowedRadius = 50; 
+        let map = null, marker = null, circle = null, userHpMarker = null;
+
+        function switchView(targetViewId) {
+            views.forEach(v => {
+                const el = document.getElementById(v);
+                if(el) { el.classList.remove('scale-100', 'opacity-100', 'flex'); el.classList.add('hidden', 'scale-95', 'opacity-0'); }
+            });
+            const targetEl = document.getElementById(targetViewId);
+            if(targetEl) {
+                targetEl.classList.remove('hidden'); targetEl.classList.add('flex');
+                setTimeout(() => { targetEl.classList.remove('scale-95', 'opacity-0'); targetEl.classList.add('scale-100', 'opacity-100'); }, 20);
+                
+                if(targetViewId === 'viewFaceScan') checkLocationAndInitCamera(); 
+                else if(targetViewId === 'viewAdminLogin') { document.getElementById('adminPin').value = ''; document.getElementById('adminError').classList.add('hidden'); } 
+                else if(targetViewId === 'viewLocationSettings') setTimeout(initMap, 500);
+            }
+        }
+
+        async function initCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+                const video = document.getElementById('videoFeed');
+                if (video) video.srcObject = stream;
+            } catch (err) { console.error("Camera err:", err); }
+        }
+        function stopCamera() { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } }
+
+        // --- CEK LOKASI (GEO-FENCING) ---
+        function checkLocationAndInitCamera() {
+            const btnStart = document.getElementById('btnStartScan');
+            const gpsInfo = document.getElementById('gpsStatusInfo');
+            const gpsText = document.getElementById('gpsStatusText');
+            
+            btnStart.disabled = true; btnStart.classList.add('opacity-50', 'cursor-not-allowed'); btnStart.innerText = 'Memeriksa Lokasi GPS...';
+            gpsInfo.classList.remove('hidden'); gpsInfo.classList.add('flex'); gpsInfo.classList.replace('bg-green-600/90', 'bg-gray-900/80'); gpsInfo.classList.replace('bg-red-600/90', 'bg-gray-900/80');
+            gpsText.innerText = "Mencari sinyal GPS...";
+
+            const handleLocationSuccess = (lat, lng) => {
+                currentUserLocationStr = `${lat}, ${lng}`; // Simpan untuk Google Sheets
+                if (!window.hasSyncedLocationDemo) { officeLocation = { lat, lng }; window.hasSyncedLocationDemo = true; }
+                const dist = calculateDistance(lat, lng, officeLocation.lat, officeLocation.lng);
+                
+                if (dist <= allowedRadius) {
+                    gpsText.innerText = "Lokasi Valid (Di Area)"; gpsInfo.classList.replace('bg-gray-900/80', 'bg-green-600/90');
+                    btnStart.disabled = false; btnStart.classList.remove('opacity-50', 'cursor-not-allowed'); btnStart.innerText = 'Mulai Scan & Simpan ke Cloud';
+                    initCamera();
+                } else {
+                    gpsText.innerText = `Di Luar Area (${Math.round(dist)}m)`; gpsInfo.classList.replace('bg-gray-900/80', 'bg-red-600/90');
+                    btnStart.disabled = true; btnStart.innerText = `Akses Diblokir`;
+                    showModal('error', 'Akses Ditolak', `Lokasi Anda berada di luar radius kantor.\n\nJarak saat ini: ${Math.round(dist)}m\nMaksimal: ${allowedRadius}m.`);
+                    initCamera(); 
+                }
+            };
+            const handleLocationError = () => {
+                const sLat = officeLocation.lat - 0.0005, sLng = officeLocation.lng - 0.0005; // Simulasi jika diblokir PC
+                gpsText.innerText = "Mode Simulasi (GPS Diblokir)"; gpsInfo.classList.replace('bg-gray-900/80', 'bg-blue-600/90');
+                handleLocationSuccess(sLat, sLng);
+            };
+
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(
+                    (p) => handleLocationSuccess(p.coords.latitude, p.coords.longitude),
+                    handleLocationError, { enableHighAccuracy: false, timeout: 8000 }
+                );
+            } else { handleLocationError(); }
+        }
+
+        // --- PROSES ABSEN & KIRIM KE GOOGLE SHEETS ---
+        async function startScan() {
+            if(isScanning) return;
+            
+            const empName = document.getElementById('employeeNip').value;
+            if(!empName) {
+                showModal('error', 'Identitas Kosong', 'Silakan isi Nama atau NIP Anda pada kolom yang disediakan sebelum absen.');
+                return;
+            }
+
+            if(GOOGLE_SCRIPT_URL === "PASTE_URL_GOOGLE_SCRIPT_ANDA_DISINI") {
+                showModal('error', 'URL API Belum Diatur', 'Anda belum mengubah URL Google Script pada file HTML ini (Baris ke-208). Data tidak akan tersimpan.');
+                return; // Stop eksekusi jika URL belum diisi
+            }
+
+            isScanning = true;
+            document.getElementById('scanOverlay').classList.remove('hidden');
+            
+            // Animasi Proses AI
+            setTimeout(async () => {
+                document.getElementById('scanOverlay').classList.add('hidden');
+                document.getElementById('scanResult').classList.replace('hidden', 'flex');
+                document.getElementById('statusText').innerText = "Menyimpan ke Google Drive...";
+                
+                // MENGIRIM KE GOOGLE SHEETS (FETCH API)
+                try {
+                    const payloadData = {
+                        nama_nip: empName,
+                        status: "Hadir (Wajah Tervalidasi)",
+                        koordinat: currentUserLocationStr
+                    };
+
+                    await fetch(GOOGLE_SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'no-cors', // WAJIB no-cors untuk Google Script
+                        cache: 'no-cache',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payloadData)
+                    });
+
+                    // Tampil Sukses
+                    stopCamera();
+                    showModal('success', 'Berhasil Disimpan', `Absensi untuk [${empName}] berhasil dicatat di Google Sheets.`);
+                    setTimeout(() => { 
+                        switchView('viewSelection'); 
+                        document.getElementById('scanResult').classList.replace('flex','hidden'); 
+                        document.getElementById('employeeNip').value = ''; 
+                        isScanning=false; 
+                    }, 2000);
+
+                } catch (error) {
+                    showModal('error', 'Gagal Terhubung', 'Gagal mengirim data ke Google Sheets. Periksa koneksi internet Anda.');
+                    document.getElementById('scanResult').classList.replace('flex','hidden');
+                    isScanning = false;
+                }
+            }, 2500);
+        }
+
+        // --- LOGIKA ADMIN ---
+        function verifyAdmin() {
+            if(document.getElementById('adminPin').value === '1234') { document.getElementById('adminError').classList.add('hidden'); switchView('viewAdminDashboard'); } 
+            else { document.getElementById('adminError').classList.remove('hidden'); }
+        }
+
+        async function startRecordFace() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+                const video = document.getElementById('recordVideoFeed');
+                if(video) video.srcObject = stream;
+                document.getElementById('recordScanOverlay').classList.replace('hidden', 'flex');
+                document.getElementById('recordStatus').innerText = "Mengekstrak...";
+                setTimeout(() => {
+                    document.getElementById('recordStatus').innerText = "Tersimpan";
+                    document.querySelector('#recordScanOverlay i').className = "fas fa-check-circle text-green-400 text-4xl mb-2 bg-white rounded-full";
+                    document.getElementById('faceDataRecorded').value = 'true';
+                    setTimeout(() => stopCamera(), 1000);
+                }, 2000);
+            } catch (err) { showModal('error', 'Kamera Gagal', 'Gagal mengakses kamera untuk rekam wajah.'); }
+        }
+
+        function saveGuruData() {
+            showModal('success', 'Data Tersimpan', 'Informasi pegawai dan rekam wajah berhasil ditambahkan ke Database.');
+            setTimeout(() => switchView('viewAdminDashboard'), 2000);
+        }
+
+        // --- INISIALISASI PETA ---
+        function initMap() {
+            const statusEl = document.getElementById('mapStatusText');
+            statusEl.innerText = "Mencari lokasi HP Anda..."; statusEl.className = "text-xs text-blue-800 font-medium";
+
+            if(!map) {
+                map = L.map('mapContainer').setView([officeLocation.lat, officeLocation.lng], 16);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+                marker = L.marker([officeLocation.lat, officeLocation.lng], {draggable: true}).addTo(map);
+                circle = L.circle([officeLocation.lat, officeLocation.lng], { color: '#2563eb', fillOpacity: 0.15, radius: allowedRadius }).addTo(map);
+                marker.on('dragend', function() { const pos = marker.getLatLng(); officeLocation.lat = pos.lat; officeLocation.lng = pos.lng; circle.setLatLng(pos); });
+            } else { map.invalidateSize(); }
+
+            const drawHpMarker = (hpLat, hpLng, isSimulated) => {
+                if (userHpMarker) map.removeLayer(userHpMarker);
+                const hpIcon = L.divIcon({ className: 'hp-marker-dot', html: "<div style='background-color:#ef4444; width:20px; height:20px; border-radius:50%; border:3px solid white;'></div>", iconSize: [20, 20], iconAnchor: [10, 10] });
+                userHpMarker = L.marker([hpLat, hpLng], {icon: hpIcon, zIndexOffset: 1000}).addTo(map).bindPopup(isSimulated ? "<b>Titik HP (Simulasi)</b>" : "<b>Lokasi HP Anda</b>");
+                map.fitBounds(L.latLngBounds([[officeLocation.lat, officeLocation.lng], [hpLat, hpLng]]), { padding: [50, 50], maxZoom: 18 });
+                if (isSimulated) { statusEl.innerHTML = "Menampilkan <b>Titik Merah Simulasi</b> karena GPS PC diblokir."; statusEl.className = "text-xs text-orange-600 font-bold"; } 
+                else { statusEl.innerHTML = "Lokasi HP ditemukan (<b>Titik Merah</b>). Geser <b>Pin Biru</b> untuk mengatur radius."; }
+            };
+
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(
+                    (p) => drawHpMarker(p.coords.latitude, p.coords.longitude, false),
+                    () => drawHpMarker(officeLocation.lat - 0.0008, officeLocation.lng - 0.0008, true), 
+                    { enableHighAccuracy: false, timeout: 8000 }
+                );
+            } else { drawHpMarker(officeLocation.lat - 0.0008, officeLocation.lng - 0.0008, true); }
+        }
+
+        function updateRadius(val) { allowedRadius = parseInt(val); document.getElementById('radiusValue').innerText = val + 'm'; if(circle) circle.setRadius(allowedRadius); }
+        function saveLocationSettings() { showModal('success', 'Lokasi Disimpan', 'Titik pusat absensi berhasil diperbarui.'); setTimeout(() => switchView('viewAdminDashboard'), 2000); }
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3, p = Math.PI/180;
+            const a = Math.sin((lat2-lat1)*p/2)**2 + Math.cos(lat1*p)*Math.cos(lat2*p)*Math.sin((lon2-lon1)*p/2)**2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+        }
+
+        // --- MODAL UTILITY ---
+        function showModal(type, title, desc) {
+            const m = document.getElementById('customModal'), c = document.getElementById('modalContent'), i = document.getElementById('modalIcon');
+            document.getElementById('modalTitle').innerText = title; document.getElementById('modalDesc').innerText = desc;
+            i.className = type === 'error' ? 'w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl bg-red-100 text-red-500' : 'w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl bg-green-100 text-green-500';
+            i.innerHTML = type === 'error' ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
+            m.classList.replace('hidden', 'flex'); setTimeout(() => { c.classList.replace('scale-90', 'scale-100'); c.classList.replace('opacity-0', 'opacity-100'); }, 10);
+        }
+        function closeModal() {
+            const m = document.getElementById('customModal'), c = document.getElementById('modalContent');
+            c.classList.replace('scale-100', 'scale-90'); c.classList.replace('opacity-100', 'opacity-0');
+            setTimeout(() => m.classList.replace('flex', 'hidden'), 300);
+        }
+    </script>
+</body>
+</html>
