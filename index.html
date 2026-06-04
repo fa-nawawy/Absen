@@ -178,7 +178,10 @@
                         <input type="range" min="10" max="1000" step="10" value="50" class="w-full h-2 bg-blue-100 rounded-lg appearance-none cursor-pointer accent-blue-600" oninput="updateRadius(this.value)">
                         <div class="mt-3 flex items-start gap-2 bg-blue-50 p-3 rounded-lg border border-blue-100">
                             <i class="fas fa-circle-info text-blue-500 mt-0.5 text-sm"></i>
-                            <p id="mapStatusText" class="text-xs text-blue-800 leading-relaxed font-medium">Mencari lokasi HP Anda... Mohon tunggu.</p>
+                            <div class="flex-1">
+                                <p id="mapStatusText" class="text-xs text-blue-800 leading-relaxed font-medium">Mencari lokasi HP Anda... Mohon tunggu.</p>
+                                <button type="button" onclick="refreshHpLocation()" class="mt-2 text-[10px] bg-blue-200 hover:bg-blue-300 text-blue-800 py-1.5 px-3 rounded-full transition-colors font-bold"><i class="fas fa-location-crosshairs mr-1"></i> Perbarui Titik HP</button>
+                            </div>
                         </div>
                     </div>
                     <button type="button" onclick="saveLocationSettings()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg"><i class="fas fa-check mr-2"></i> Simpan Lokasi Baru</button>
@@ -205,7 +208,7 @@
         // =========================================================================
         // MASUKKAN URL GOOGLE APPS SCRIPT ANDA DI BAWAH INI (DARI LANGKAH SEBELUMNYA)
         // =========================================================================
-        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzfDjr2djSj166cABw6QM7XauErWtdlKA7kOhrvlBaOaKnmZJi1t-i0OHrClNXrYz4QsQ/exec"; 
+        const GOOGLE_SCRIPT_URL = "PASTE_URL_GOOGLE_SCRIPT_ANDA_DISINI"; 
 
         const views = ['viewSelection', 'viewFaceScan', 'viewAdminLogin', 'viewAdminDashboard', 'viewAddTeacher', 'viewLocationSettings'];
         let stream = null;
@@ -248,9 +251,9 @@
             const gpsInfo = document.getElementById('gpsStatusInfo');
             const gpsText = document.getElementById('gpsStatusText');
             
-            btnStart.disabled = true; btnStart.classList.add('opacity-50', 'cursor-not-allowed'); btnStart.innerText = 'Memeriksa Lokasi GPS...';
+            btnStart.disabled = true; btnStart.classList.add('opacity-50', 'cursor-not-allowed'); btnStart.innerText = 'Memeriksa Lokasi Akurat...';
             gpsInfo.classList.remove('hidden'); gpsInfo.classList.add('flex'); gpsInfo.classList.replace('bg-green-600/90', 'bg-gray-900/80'); gpsInfo.classList.replace('bg-red-600/90', 'bg-gray-900/80');
-            gpsText.innerText = "Mencari sinyal GPS...";
+            gpsText.innerText = "Mencari satelit GPS...";
 
             const handleLocationSuccess = (lat, lng) => {
                 currentUserLocationStr = `${lat}, ${lng}`; // Simpan untuk Google Sheets
@@ -275,9 +278,10 @@
             };
 
             if ("geolocation" in navigator) {
+                // MENGAKTIFKAN AKURASI TINGGI DAN MENCEGAH CACHE LOKASI LAMA
                 navigator.geolocation.getCurrentPosition(
                     (p) => handleLocationSuccess(p.coords.latitude, p.coords.longitude),
-                    handleLocationError, { enableHighAccuracy: false, timeout: 8000 }
+                    handleLocationError, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
                 );
             } else { handleLocationError(); }
         }
@@ -368,6 +372,29 @@
         }
 
         // --- INISIALISASI PETA ---
+        function drawHpMarker(hpLat, hpLng, isSimulated) {
+            const statusEl = document.getElementById('mapStatusText');
+            if (userHpMarker) map.removeLayer(userHpMarker);
+            const hpIcon = L.divIcon({ className: 'hp-marker-dot', html: "<div style='background-color:#ef4444; width:20px; height:20px; border-radius:50%; border:3px solid white;'></div>", iconSize: [20, 20], iconAnchor: [10, 10] });
+            userHpMarker = L.marker([hpLat, hpLng], {icon: hpIcon, zIndexOffset: 1000}).addTo(map).bindPopup(isSimulated ? "<b>Titik HP (Simulasi)</b>" : "<b>Lokasi HP Anda</b>");
+            map.fitBounds(L.latLngBounds([[officeLocation.lat, officeLocation.lng], [hpLat, hpLng]]), { padding: [50, 50], maxZoom: 18 });
+            if (isSimulated) { statusEl.innerHTML = "Menampilkan <b>Titik Merah Simulasi</b> karena GPS PC diblokir."; statusEl.className = "text-xs text-orange-600 font-bold"; } 
+            else { statusEl.innerHTML = "Lokasi HP ditemukan (<b>Titik Merah</b>). Geser <b>Pin Biru</b> untuk mengatur radius."; statusEl.className = "text-xs text-blue-800 font-medium"; }
+        }
+
+        function refreshHpLocation() {
+            const statusEl = document.getElementById('mapStatusText');
+            statusEl.innerText = "Mencari ulang satelit GPS...";
+            statusEl.className = "text-xs text-blue-800 font-medium";
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(
+                    (p) => drawHpMarker(p.coords.latitude, p.coords.longitude, false),
+                    () => { statusEl.innerHTML = "Gagal memperbarui. Pastikan izin lokasi <b>Akurat/Presisi</b> aktif."; statusEl.className = "text-xs text-red-600 font-bold"; },
+                    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+                );
+            }
+        }
+
         function initMap() {
             const statusEl = document.getElementById('mapStatusText');
             statusEl.innerText = "Mencari lokasi HP Anda..."; statusEl.className = "text-xs text-blue-800 font-medium";
@@ -380,20 +407,12 @@
                 marker.on('dragend', function() { const pos = marker.getLatLng(); officeLocation.lat = pos.lat; officeLocation.lng = pos.lng; circle.setLatLng(pos); });
             } else { map.invalidateSize(); }
 
-            const drawHpMarker = (hpLat, hpLng, isSimulated) => {
-                if (userHpMarker) map.removeLayer(userHpMarker);
-                const hpIcon = L.divIcon({ className: 'hp-marker-dot', html: "<div style='background-color:#ef4444; width:20px; height:20px; border-radius:50%; border:3px solid white;'></div>", iconSize: [20, 20], iconAnchor: [10, 10] });
-                userHpMarker = L.marker([hpLat, hpLng], {icon: hpIcon, zIndexOffset: 1000}).addTo(map).bindPopup(isSimulated ? "<b>Titik HP (Simulasi)</b>" : "<b>Lokasi HP Anda</b>");
-                map.fitBounds(L.latLngBounds([[officeLocation.lat, officeLocation.lng], [hpLat, hpLng]]), { padding: [50, 50], maxZoom: 18 });
-                if (isSimulated) { statusEl.innerHTML = "Menampilkan <b>Titik Merah Simulasi</b> karena GPS PC diblokir."; statusEl.className = "text-xs text-orange-600 font-bold"; } 
-                else { statusEl.innerHTML = "Lokasi HP ditemukan (<b>Titik Merah</b>). Geser <b>Pin Biru</b> untuk mengatur radius."; }
-            };
-
             if ("geolocation" in navigator) {
+                // MENGAKTIFKAN AKURASI TINGGI UNTUK PETA
                 navigator.geolocation.getCurrentPosition(
                     (p) => drawHpMarker(p.coords.latitude, p.coords.longitude, false),
                     () => drawHpMarker(officeLocation.lat - 0.0008, officeLocation.lng - 0.0008, true), 
-                    { enableHighAccuracy: false, timeout: 8000 }
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
                 );
             } else { drawHpMarker(officeLocation.lat - 0.0008, officeLocation.lng - 0.0008, true); }
         }
