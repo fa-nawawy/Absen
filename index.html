@@ -115,19 +115,28 @@
                 <p class="text-blue-200 text-sm">Kelola data dan pengaturan sistem</p>
             </div>
             <div class="flex-1 p-6 space-y-4 overflow-y-auto">
-                <button type="button" onclick="switchView('viewAddTeacher')" class="w-full bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:border-blue-500 group">
+                <button type="button" onclick="switchView('viewAddTeacher')" class="w-full bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:border-blue-500 group transition-colors">
                     <div class="flex items-center gap-4">
                         <div class="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center"><i class="fas fa-user-plus text-lg"></i></div>
-                        <div class="text-left"><h3 class="font-bold text-gray-900">Tambah Data Guru</h3><p class="text-xs text-gray-500">Registrasi & Rekam Wajah Baru</p></div>
+                        <div class="text-left"><h3 class="font-bold text-gray-900 group-hover:text-blue-700">Tambah Data Guru</h3><p class="text-xs text-gray-500">Registrasi & Rekam Wajah Baru</p></div>
                     </div>
-                    <i class="fas fa-chevron-right text-gray-300"></i>
+                    <i class="fas fa-chevron-right text-gray-300 group-hover:text-blue-500"></i>
                 </button>
-                <button type="button" onclick="switchView('viewLocationSettings')" class="w-full bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:border-blue-500 group">
+
+                <button type="button" onclick="switchView('viewTeacherList')" class="w-full bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:border-blue-500 group transition-colors">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center"><i class="fas fa-users text-lg"></i></div>
+                        <div class="text-left"><h3 class="font-bold text-gray-900 group-hover:text-blue-700">Data Guru Terdaftar</h3><p class="text-xs text-gray-500">Lihat daftar pegawai sistem</p></div>
+                    </div>
+                    <i class="fas fa-chevron-right text-gray-300 group-hover:text-blue-500"></i>
+                </button>
+
+                <button type="button" onclick="switchView('viewLocationSettings')" class="w-full bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:border-blue-500 group transition-colors">
                     <div class="flex items-center gap-4">
                         <div class="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center"><i class="fas fa-map-location-dot text-lg"></i></div>
-                        <div class="text-left"><h3 class="font-bold text-gray-900">Pengaturan Lokasi</h3><p class="text-xs text-gray-500">Atur koordinat & radius absen</p></div>
+                        <div class="text-left"><h3 class="font-bold text-gray-900 group-hover:text-blue-700">Pengaturan Lokasi</h3><p class="text-xs text-gray-500">Atur koordinat & radius absen</p></div>
                     </div>
-                    <i class="fas fa-chevron-right text-gray-300"></i>
+                    <i class="fas fa-chevron-right text-gray-300 group-hover:text-blue-500"></i>
                 </button>
             </div>
         </div>
@@ -189,6 +198,19 @@
             </div>
         </div>
 
+        <!-- ==================== VIEW 7: TEACHER LIST ==================== -->
+        <div id="viewTeacherList" class="absolute inset-0 bg-gray-50 hidden flex-col transition-all duration-300 transform scale-95 opacity-0 z-20">
+            <div class="bg-blue-900 text-white p-4 flex justify-between items-center shadow-sm shrink-0">
+                <button type="button" onclick="switchView('viewAdminDashboard')" class="text-blue-200 hover:text-white text-sm"><i class="fas fa-arrow-left mr-2"></i> Kembali</button>
+                <div class="font-semibold text-sm">DATA GURU</div><div class="w-20"></div>
+            </div>
+            <div class="flex-1 p-6 overflow-y-auto">
+                <div id="teacherListContainer" class="space-y-3">
+                    <!-- List guru akan dirender di sini via JS -->
+                </div>
+            </div>
+        </div>
+
         <!-- ==================== MODAL CUSTOM ==================== -->
         <div id="customModal" class="absolute inset-0 z-[9999] hidden items-center justify-center p-4">
             <div class="absolute inset-0 bg-blue-950/60 backdrop-blur-sm" onclick="closeModal()"></div>
@@ -210,10 +232,13 @@
         // =========================================================================
         const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzfDjr2djSj166cABw6QM7XauErWtdlKA7kOhrvlBaOaKnmZJi1t-i0OHrClNXrYz4QsQ/exec"; 
 
-        const views = ['viewSelection', 'viewFaceScan', 'viewAdminLogin', 'viewAdminDashboard', 'viewAddTeacher', 'viewLocationSettings'];
+        const views = ['viewSelection', 'viewFaceScan', 'viewAdminLogin', 'viewAdminDashboard', 'viewAddTeacher', 'viewLocationSettings', 'viewTeacherList'];
         let stream = null;
         let isScanning = false;
         let currentUserLocationStr = "Lokasi tidak diketahui"; // Disimpan untuk dikirim ke G-Sheets
+        let currentScanStatus = "Hadir"; // Default status absensi
+        
+        let registeredTeachers = []; // Array untuk menyimpan data guru
 
         // Peta & GPS
         let officeLocation = { lat: -7.905663, lng: 113.822004 }; 
@@ -233,6 +258,7 @@
                 if(targetViewId === 'viewFaceScan') checkLocationAndInitCamera(); 
                 else if(targetViewId === 'viewAdminLogin') { document.getElementById('adminPin').value = ''; document.getElementById('adminError').classList.add('hidden'); } 
                 else if(targetViewId === 'viewLocationSettings') setTimeout(initMap, 500);
+                else if(targetViewId === 'viewTeacherList') renderTeacherList();
             }
         }
 
@@ -252,7 +278,9 @@
             const gpsText = document.getElementById('gpsStatusText');
             
             btnStart.disabled = true; btnStart.classList.add('opacity-50', 'cursor-not-allowed'); btnStart.innerText = 'Memeriksa Lokasi Akurat...';
-            gpsInfo.classList.remove('hidden'); gpsInfo.classList.add('flex'); gpsInfo.classList.replace('bg-green-600/90', 'bg-gray-900/80'); gpsInfo.classList.replace('bg-red-600/90', 'bg-gray-900/80');
+            gpsInfo.classList.remove('hidden'); gpsInfo.classList.add('flex'); 
+            gpsInfo.classList.remove('bg-green-600/90', 'bg-red-600/90', 'bg-orange-600/90'); 
+            gpsInfo.classList.add('bg-gray-900/80');
             gpsText.innerText = "Mencari satelit GPS...";
 
             const handleLocationSuccess = (lat, lng) => {
@@ -260,20 +288,23 @@
                 if (!window.hasSyncedLocationDemo) { officeLocation = { lat, lng }; window.hasSyncedLocationDemo = true; }
                 const dist = calculateDistance(lat, lng, officeLocation.lat, officeLocation.lng);
                 
+                gpsInfo.classList.remove('bg-gray-900/80');
                 if (dist <= allowedRadius) {
-                    gpsText.innerText = "Lokasi Valid (Di Area)"; gpsInfo.classList.replace('bg-gray-900/80', 'bg-green-600/90');
+                    currentScanStatus = "Hadir (Di Area)";
+                    gpsText.innerText = "Lokasi Valid (Di Area)"; gpsInfo.classList.add('bg-green-600/90');
                     btnStart.disabled = false; btnStart.classList.remove('opacity-50', 'cursor-not-allowed'); btnStart.innerText = 'Mulai Scan & Simpan ke Cloud';
                     initCamera();
                 } else {
-                    gpsText.innerText = `Di Luar Area (${Math.round(dist)}m)`; gpsInfo.classList.replace('bg-gray-900/80', 'bg-red-600/90');
-                    btnStart.disabled = true; btnStart.innerText = `Akses Diblokir`;
-                    showModal('error', 'Akses Ditolak', `Lokasi Anda berada di luar radius kantor.\n\nJarak saat ini: ${Math.round(dist)}m\nMaksimal: ${allowedRadius}m.`);
+                    currentScanStatus = "Izin (Di Luar Area Kantor)";
+                    gpsText.innerText = `Mode Izin (${Math.round(dist)}m)`; gpsInfo.classList.add('bg-orange-600/90');
+                    btnStart.disabled = false; btnStart.classList.remove('opacity-50', 'cursor-not-allowed'); btnStart.innerText = `Mulai Scan (Mode Izin)`;
+                    showModal('warning', 'Peringatan Lokasi', `Anda berada di luar radius kantor (${Math.round(dist)}m).\n\nAbsensi akan tetap diproses, namun status Anda akan dicatat sebagai IZIN.`);
                     initCamera(); 
                 }
             };
             const handleLocationError = () => {
                 const sLat = officeLocation.lat - 0.0005, sLng = officeLocation.lng - 0.0005; // Simulasi jika diblokir PC
-                gpsText.innerText = "Mode Simulasi (GPS Diblokir)"; gpsInfo.classList.replace('bg-gray-900/80', 'bg-blue-600/90');
+                gpsText.innerText = "Mode Simulasi (GPS Diblokir)"; gpsInfo.classList.add('bg-blue-600/90');
                 handleLocationSuccess(sLat, sLng);
             };
 
@@ -314,7 +345,7 @@
                 try {
                     const payloadData = {
                         nama_nip: empName,
-                        status: "Hadir (Wajah Tervalidasi)",
+                        status: currentScanStatus,
                         koordinat: currentUserLocationStr
                     };
 
@@ -328,7 +359,8 @@
 
                     // Tampil Sukses
                     stopCamera();
-                    showModal('success', 'Berhasil Disimpan', `Absensi untuk [${empName}] berhasil dicatat di Google Sheets.`);
+                    const statusTextMsg = currentScanStatus.includes('Izin') ? 'IZIN' : 'HADIR';
+                    showModal('success', 'Berhasil Disimpan', `Absensi untuk [${empName}] berhasil dicatat sebagai ${statusTextMsg}.`);
                     setTimeout(() => { 
                         switchView('viewSelection'); 
                         document.getElementById('scanResult').classList.replace('flex','hidden'); 
@@ -367,8 +399,64 @@
         }
 
         function saveGuruData() {
+            const nip = document.getElementById('guruNip').value;
+            const nama = document.getElementById('guruNama').value;
+            const jabatan = document.getElementById('guruJabatan').value;
+            const faceRecorded = document.getElementById('faceDataRecorded').value;
+
+            if(!nip || !nama || !jabatan) {
+                showModal('error', 'Data Tidak Lengkap', 'Mohon lengkapi NIP, Nama, dan Jabatan terlebih dahulu.');
+                return;
+            }
+            if(faceRecorded !== 'true') {
+                showModal('error', 'Wajah Belum Direkam', 'Mohon nyalakan kamera dan rekam biometrik wajah terlebih dahulu.');
+                return;
+            }
+
+            // Simpan ke memori sementara (Array)
+            registeredTeachers.push({ nip, nama, jabatan });
+
+            // Bersihkan Form
+            document.getElementById('guruNip').value = '';
+            document.getElementById('guruNama').value = '';
+            document.getElementById('guruJabatan').value = '';
+            document.getElementById('faceDataRecorded').value = 'false';
+            document.getElementById('recordScanOverlay').classList.add('hidden');
+            document.getElementById('recordScanOverlay').classList.remove('flex');
+
             showModal('success', 'Data Tersimpan', 'Informasi pegawai dan rekam wajah berhasil ditambahkan ke Database.');
             setTimeout(() => switchView('viewAdminDashboard'), 2000);
+        }
+
+        function renderTeacherList() {
+            const container = document.getElementById('teacherListContainer');
+            container.innerHTML = '';
+
+            if (registeredTeachers.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-500 mt-10">
+                        <i class="fas fa-folder-open text-4xl mb-3 text-gray-300"></i>
+                        <p class="text-sm">Belum ada data guru yang terdaftar.</p>
+                    </div>`;
+                return;
+            }
+
+            // Render daftar dari array
+            registeredTeachers.forEach((guru) => {
+                container.innerHTML += `
+                    <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between hover:shadow-md transition-shadow">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+                                ${guru.nama.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-gray-900 text-sm">${guru.nama}</h4>
+                                <p class="text-xs text-gray-500">${guru.nip} • ${guru.jabatan}</p>
+                            </div>
+                        </div>
+                        <i class="fas fa-check-circle text-green-500" title="Wajah Terekam"></i>
+                    </div>`;
+            });
         }
 
         // --- INISIALISASI PETA ---
@@ -429,8 +517,18 @@
         function showModal(type, title, desc) {
             const m = document.getElementById('customModal'), c = document.getElementById('modalContent'), i = document.getElementById('modalIcon');
             document.getElementById('modalTitle').innerText = title; document.getElementById('modalDesc').innerText = desc;
-            i.className = type === 'error' ? 'w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl bg-red-100 text-red-500' : 'w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl bg-green-100 text-green-500';
-            i.innerHTML = type === 'error' ? '<i class="fas fa-times"></i>' : '<i class="fas fa-check"></i>';
+            
+            if (type === 'error') {
+                i.className = 'w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl bg-red-100 text-red-500';
+                i.innerHTML = '<i class="fas fa-times"></i>';
+            } else if (type === 'warning') {
+                i.className = 'w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl bg-orange-100 text-orange-500';
+                i.innerHTML = '<i class="fas fa-exclamation"></i>';
+            } else {
+                i.className = 'w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl bg-green-100 text-green-500';
+                i.innerHTML = '<i class="fas fa-check"></i>';
+            }
+            
             m.classList.replace('hidden', 'flex'); setTimeout(() => { c.classList.replace('scale-90', 'scale-100'); c.classList.replace('opacity-0', 'opacity-100'); }, 10);
         }
         function closeModal() {
